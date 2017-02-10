@@ -6,6 +6,7 @@
 #define FINAL_TIME 10.f
 #include <stdio.h>
 #include <math.h>
+#define true_dist 1.0437619617094618
 
 // scale coordinates onto [-LEN, LEN]
 __device__
@@ -19,50 +20,47 @@ float f(float x, float y, float param, float sys) {
   else return -x - 2 * param*y;
 }
 
-__device__
-float g(float y){
-	return y;
-}
-
 
 // explicit Runge Kutta solver
 __device__
 float2 RK(float x, float y, float dt, float tFinal, float param, float sys) {
-	float dx = 0.f, dy = 0.f;
-	float k1; float k2; float k3; float k0; float l0; float l1; float l2; float l3;
-	for (float t = 0; t < tFinal; t += dt) {
-		k0 = g(y);
-		l0 = f(x, y, param, sys);
+	float k1 = 0.f, k2 = 0.f, k3 = 0.f, k4 = 0.f, l1 = 0.f, l2 = 0.f, l3 = 0.f, l4 = 0.f; 
+	for (float t = 0; t < tFinal; t += dt){
+		float dx = 0.f, dy = 0.f;
+		k1 = y;
+		l1 = f(x, y, param, sys);
 
-		k1 = g(y + 0.5*l0*dt);
-		l1 = f(x + 0.5*k0*dt, y + 0.5*l0*dt, param, sys);
+		k2 = y + l1*dt / 2;
+		l2 = f(x + k1*dt / 2, y + l1*dt / 2, param, sys);
 
-		k2 = g(y + 0.5*l1*dt);
-		l2 = f(x + 0.5*k1*dt, y + 0.5*l1*dt, param, sys);
+		k3 = y + l2*dt / 2;
+		l3 = f(x + k2*dt / 2, y + l2*dt / 2, param, sys);
 
-		k3 = g(y + l2*dt);
-		l2 = f(x + k2*dt, y + l2*dt, param, sys);
+		k4 = y + l3*dt;
+		l4 = f(x + k3*dt, y + l3*dt, param, sys);
 
-		dx = dt * 1 / 6 * (k0 + 2 * k1 + 2 * k2 + k3);
-		dy = dt * 1 / 6 * (l0 + 2 * l1 + 2 * l2 + l3);
+		dx = dt * (k1 + 2 * k2 + 2 * k3 + k4)/6;
+		dy = dt * (l1 + 2 * l2 + 2 * l3 + l4)/6;
 		x += dx;
 		y += dy;
 	}
+	
 	return make_float2(x, y);
 }
 
 
 // explicit Euler solver
 __device__
-float2 euler(float x, float y, float dt, float tFinal, float param, float sys) {
-	float dx = 0.f, dy = 0.f;
-	for (float t = 0; t < tFinal; t += dt) {
-		dx = dt*y;
-		dy = dt*f(x, y, param, sys);
-		x += dx;
-		y += dy;
-	}
-	return make_float2(x, y);
+float2 euler(float x, float y, float dt, float tFinal,
+             float param, float sys) {
+  float dx = 0.f, dy = 0.f;
+  for (float t = 0; t < tFinal; t += dt) {
+    dx = dt*y;
+    dy = dt*f(x, y, param, sys);
+    x += dx;
+    y += dy;
+  }
+  return make_float2(x, y);
 }
 
 __device__
@@ -80,27 +78,43 @@ void stabImageKernel(uchar4 *d_out, int w, int h, float p, int s) {
   const float dist_0 = sqrt(x0*x0 + y0*y0);
   const float2 pos = RK(x0, y0, TIME_STEP, FINAL_TIME, p, s);
   const float dist_f = sqrt(pos.x*pos.x + pos.y*pos.y);
+
+  if (c == w*0.55 && r == h*0.55){
+	  const float dist = dist_f;
+	  printf("distance= %f\n", dist_f);
+	  const float absError = abs(true_dist - dist);
+	  printf("absolute distance error = %f\n", absError);
+	  const float percentage = absError / true_dist * 100;
+	  printf("error percentage = %f\n", percentage);
+	  const float steps = FINAL_TIME / TIME_STEP;
+	  printf("steps taken = %f\n", steps);
+  }
+
+  
   // assign colors based on distance from origin
   const float dist_r = dist_f / dist_0;
-
   d_out[i].x = clip(dist_r * 255); // red ~ growth
   d_out[i].y = ((c == w / 2) || (r == h / 2)) ? 255 : 0; // axes
   d_out[i].z = clip((1 / dist_r) * 255); // blue ~ 1/growth
   d_out[i].w = 255;
-  if (c == w*0.55 && r == h*0.55){
-	  printf("distance= %f", dist_f);
-  }
-   
+
 }
 
 void kernelLauncher(uchar4 *d_out, int w, int h, float p, int s) {
-  
 	cudaEvent_t startKernel, stopKernel;
 	cudaEventCreate(&startKernel);
 	cudaEventCreate(&stopKernel);
 
 	const dim3 blockSize(TX, TY);
   const dim3 gridSize = dim3((w + TX - 1)/TX, (h + TY - 1)/TY);
+  cudaEventRecord(startKernel);
   stabImageKernel<<<gridSize, blockSize >>>(d_out, w, h, p, s);
+  cudaEventRecord(stopKernel);
   cudaEventSynchronize(stopKernel);
+  
+  //convert event records to time and output
+  float kernelTimeInMs = 0;
+  cudaEventElapsedTime(&kernelTimeInMs, startKernel, stopKernel);
+  printf("Kernel time (ms) = : %f\n\n", kernelTimeInMs);
+
 }
