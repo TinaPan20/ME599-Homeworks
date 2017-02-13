@@ -28,8 +28,8 @@
 cmake_minimum_required(VERSION 2.8)
 
 # Set the name of your project. Change the next two lines to match your current project name.
-project(stability)
-set(EXE_NAME stability)
+project(flashlight)
+set(EXE_NAME flashlight)
 
 ## Some compilation options you may want to change
 set(CUDA_COMPUTE_CAPABILITY "30") 
@@ -63,7 +63,7 @@ if(NOT GLEW_FOUND)
 	find_package(GLEWlocal REQUIRED)
 endif()
 
-## Collect all the sources in the current folder.
+## Collect all the sources in the src folder.
 # Note that header files don't *need* to be included
 # here, but if we don't, they will not show up in
 # the Visual Studio explorer.
